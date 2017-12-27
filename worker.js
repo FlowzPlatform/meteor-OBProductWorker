@@ -14,7 +14,7 @@ let ObjSchema =  mongoose.Schema;
 let attributeKeys = ['attr_colors','attr_imprint color','attr_shape','attr_decimal']
 let featureKeys = ['feature_1','feature_2','feature_3','feature_4','feature_5','feature_6','feature_7','feature_8','feature_9','feature_10','feature_11','feature_12','feature_13','feature_14','feature_15','feature_16','feature_17','feature_18','feature_19','feature_20','feature_21','feature_22','feature_23','feature_24','feature_25','feature_26','feature_27','feature_28','feature_29','feature_30','feature_31','feature_32','feature_33','feature_34']
 // let esUrl = 'http://elastic:changeme@localhost:9200/'
-let esUrl = 'https://elastic:gghnzAISL0eCsNhWl3tQoNF7@985d78fabf8886f1c45ab91ac32fc944.us-east-1.aws.found.io:9243'
+let esUrl = 'https://elastic:J26n7GwOFk7vtqG7xiHQi8gX@f21a94c6770cd2850444cb6de9b333cf.us-east-1.aws.found.io:9243'
 let collectionPrefix = 'uploader'
 let activeSummary = []
 
@@ -25,10 +25,10 @@ let ESClient = new elasticsearch.Client({
 
 let optionsES = {
   tls: 'https://',
-  host: '985d78fabf8886f1c45ab91ac32fc944.us-east-1.aws.found.io',
+  host: 'f21a94c6770cd2850444cb6de9b333cf.us-east-1.aws.found.io',
   path: '_xpack/security/user/',
   port: '9243',
-  auth: 'elastic:gghnzAISL0eCsNhWl3tQoNF7'
+  auth: 'elastic:J26n7GwOFk7vtqG7xiHQi8gX'
   // This is the only line that is new. `headers` is an object with the headers to request
   // headers: {'custom': 'Custom Header Demo works'}
 }
