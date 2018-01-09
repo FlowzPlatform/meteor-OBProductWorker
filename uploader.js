@@ -10,6 +10,11 @@ let extend = require('extend')
 const uuidV1 = require('uuid/v1');
 let ESuserData = null
 let Promise = require('es6-promise').Promise
+mongoose.connect('mongodb://139.59.35.45:27017/closeoutpromo',{ keepAlive: 800000, connectTimeoutMS: 800000, useMongoClient: true }, function(err, db) {
+  if(err){
+    console.log("error.........",err)
+  }
+});
 let ObjSchema =  mongoose.Schema;
 let attributeKeys = ['attr_colors','attr_imprint color','attr_shape','attr_decimal']
 let featureKeys = ['feature_1','feature_2','feature_3','feature_4','feature_5','feature_6','feature_7','feature_8','feature_9','feature_10','feature_11','feature_12','feature_13','feature_14','feature_15','feature_16','feature_17','feature_18','feature_19','feature_20','feature_21','feature_22','feature_23','feature_24','feature_25','feature_26','feature_27','feature_28','feature_29','feature_30','feature_31','feature_32','feature_33','feature_34']
@@ -56,7 +61,7 @@ let fileTypes =
 let doJob = async function (objWorkJob, next) {
   console.log('==============In Do Job==============')
   if (!objWorkJob.data) {
-    return false
+    return next(new Error('no job data'), objWorkJob)
   }
   // check user created on ES
   let userData = await getUserRequestResponse(objWorkJob)
@@ -64,8 +69,8 @@ let doJob = async function (objWorkJob, next) {
   console.log('========get user====', userData)
   await userDataPrepared(objWorkJob)
 
-  objWorkJob.done()
-  updateJobQueueStatus(objWorkJob)
+  return next(null, 'success')
+  // updateJobQueueStatus(objWorkJob)
 }
 
 async function getESUser (username) {
@@ -96,16 +101,18 @@ async function makeNewUser (objWorkJob) {
   let jobData = objWorkJob.data
   let username = jobData.username
   console.log('username....', username)
-  let userDataFromMongo = await getUserDataFromMongo(jobData.owner)
-  userDataFromMongo = userDataFromMongo[0].toObject()
-  uid = userDataFromMongo.uid
+  // let userDataFromMongo = await getUserDataFromMongo(jobData.owner)
+  // userDataFromMongo = userDataFromMongo[0].toObject()
+  // let userDataFromMongo = jobData.userData
+  // let uid = userDataFromMongo.uid
+  let uid = jobData.uid
+  // console.log('\n\n\n\n\nuid......\n\n\n\n', uid)
   let userObject = {
     'password': '123456',
     'roles': ['read_write'],
     'full_name': username,
-    'email': username + '@example.com',
+    'email': username,
     'metadata': {
-      'id': uid,
       'company': username
     },
     'enabled': true
@@ -124,12 +131,14 @@ async function makeNewUser (objWorkJob) {
 }
 
 async function makeNewPreviewUser (objWorkJob) {
-  let jobData = objWorkJob._doc.data
+  let jobData = objWorkJob.data
   let username = jobData.username + '_demo'
   let company = jobData.username
-  let userDataFromMongo = await getUserDataFromMongo(jobData.owner)
-  userDataFromMongo = userDataFromMongo[0].toObject()
-  uid = userDataFromMongo.uid
+  // let userDataFromMongo = await getUserDataFromMongo(jobData.owner)
+  // userDataFromMongo = userDataFromMongo[0].toObject()
+  // let userDataFromMongo = jobData.userData
+  // uid = userDataFromMongo.uid
+  let uid = jobData.uid
 
   //   let userCollObject = await makeDynamicCollectionObjWithoutPrefix('users')
   //     console.log(userCollObject);
@@ -140,9 +149,8 @@ async function makeNewPreviewUser (objWorkJob) {
     'password': '123456',
     'roles': ['read_write'],
     'full_name': username,
-    'email': username + '@example.com',
+    'email': username,
     'metadata': {
-      'id': uid,
       'company':company,
       'sid':getUserNewVersion(ESuserData[jobData.username])
     },
@@ -187,12 +195,12 @@ async function userDataPrepared (objWorkJob) {
     // make product wise json object for one product document
     let listObjects = await gatherAllData(objWorkJob)
     // console.log("*********************** LIST OBJECTS",listObjects)
-    let jobData = objWorkJob._doc.data
+    let jobData = objWorkJob.data
     let currentProducts = []
     let futureProducts = []
     let makeProductUpdateJsonObj = []
-    console.log("==================",objWorkJob._doc.data.uploadType,"===============")
-    if (objWorkJob._doc.data.uploadType != 'replace') {
+    console.log("==================",objWorkJob.data.uploadType,"===============")
+    if (objWorkJob.data.uploadType != 'replace') {
       currentProducts = await getCurrentProduct(ESuserData[jobData.username]).catch(err => {
         console.log("getCurrentProduct err",err)
       })
@@ -212,8 +220,8 @@ async function userDataPrepared (objWorkJob) {
 }
 let finalSKU = []
 async function getUpdateRecords (objWorkJob, currentProducts, futureProducts) {
-  let uploadType = objWorkJob._doc.data.uploadType
-  let jobData = objWorkJob._doc.data
+  let uploadType = objWorkJob.data.uploadType
+  let jobData = objWorkJob.data
   // console.log("Current products...................",currentProducts)
 
   // if(currentProducts != undefined){
@@ -294,7 +302,7 @@ return new Promise((resolve, reject) => {
 }
 
 function gatherAllData (objWorkJob) {
-  let queueData = objWorkJob._doc.data
+  let queueData = objWorkJob.data
   // console.log(queueData)
   // object for file list
   let listObjects = []
@@ -369,7 +377,7 @@ let makeJson = function (objWorkJob, listObjects, offset, currentProductsData, m
 }
 
 async function mergeOtherProductData (objWorkJob, data, listObjects, currentProductsData, makeProductUpdateJsonObj) {
-  let jobData = objWorkJob._doc.data
+  let jobData = objWorkJob.data
 
   //console.log(`console ${data.length}`, listObjects)
   let makeProductJsonObj = makeProductUpdateJsonObj
@@ -505,11 +513,12 @@ async function mergeOtherProductData (objWorkJob, data, listObjects, currentProd
 
     //value['attr_colors'] = convertStringToArray(value['attr_colors'], '|')
     console.log("---------------------------------------->",ESuserData[jobData.username]['metadata']['company'])
+    // value['supplier_id'] = ESuserData[jobData.username]['metadata']['id']
     value['supplier_id'] = ESuserData[jobData.username]['metadata']['id']
     value['supplier_info'] = {
                               'company': ESuserData[jobData.username]['metadata']['company'],
                               'username': jobData.username,
-                              'ownerId': jobData.owner
+                              'ownerId': jobData.uid
                             }
     value['vid'] = Array(getUserNextVersion)
 
@@ -906,9 +915,9 @@ function updateJobQueueStatus (objWorkJob) {
     mdlobjJobMaster = mongoose.model('objJobMaster', objJobMaster)
   }
 
-  let jobData = objWorkJob._doc.data
-  //console.log("=====job data status======",jobData._id)
-  let query = {'_id': jobData._id}
+  let jobData = objWorkJob.data
+  //console.log("=====job data status======",jobData.id)
+  let query = {'_id': jobData.id}
   let dataObj = {}
   dataObj.stepStatus = 'import_to_confirm'
   //{'$set': {'stepStatus': 'import_to_confirm'} },
