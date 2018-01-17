@@ -1,0 +1,22 @@
+{
+  "rethinkDBConnection" : {
+    "host": "47.254.27.134",
+    "port": 28015,
+    "db": "FlowzDBETL",
+    "table":"uploader"
+  },
+  "pino": {
+    "timestamp": false,
+    "prettyPrint": {
+      "forceColor": true
+    }
+  },
+  "mongoDBConnection": {
+    "URL": "mongodb://obdev:123456@ds247587.mlab.com:47587/pdmuploader"
+  },
+  "ESConnection": {
+    "host": "269c1302a5a92a178fd5dd7b26759f32.us-east-1.aws.found.io",
+    "port": "9243",
+    "auth": "elastic:qu4JFOrR1tU8doBqsFVPPlwc"
+  }
+}

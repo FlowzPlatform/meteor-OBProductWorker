@@ -1,0 +1,16 @@
+{
+  "rethinkDBConnection" : {
+    "host": "47.254.27.134",
+    "port": 28015,
+    "db": "uploader"
+  },
+  "pino": {
+    "timestamp": false,
+    "prettyPrint": {
+      "forceColor": true
+    }
+  },
+  "mongoDBConnection": {
+    "URL": "mongodb://obdev:123456@ds247587.mlab.com:47587/pdmuploader"
+  }
+}
