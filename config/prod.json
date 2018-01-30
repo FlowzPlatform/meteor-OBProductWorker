@@ -1,8 +1,11 @@
 {
   "rethinkDBConnection" : {
-    "host": "47.254.27.134",
+    "host": "localhost",
     "port": 28015,
-    "db": "uploader"
+    "db": "FlowzDBETL",
+    "table":"uploader",
+    "vshopdb": "feather_product",
+    "vshoptable":"vshopdata"
   },
   "pino": {
     "timestamp": false,
@@ -11,6 +14,11 @@
     }
   },
   "mongoDBConnection": {
-    "URL": "mongodb://obdev:123456@ds247587.mlab.com:47587/pdmuploader"
+    "URL": "mongodb://localhost:27001/pdmuploader"
+  },
+  "ESConnection": {
+    "host": "localhost",
+    "port": "9600",
+    "auth": "elastic:changeme"
   }
 }

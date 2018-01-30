@@ -2,13 +2,29 @@ const rfqQueue = require('rethinkdb-job-queue')
 const config = require('config')
 let rethink = require('rethinkdb')
 let rpRequest = require('request-promise')
-let rethinkDBConnection = config.get('rethinkDBConnection')
-let connctionOption = rethinkDBConnection
+const extend = require('util')._extend
+
+let rethinkDBConnection = extend({}, config.get('rethinkDBConnection'))
+if (process.env.rdbHost !== undefined && process.env.rdbHost !== '') {
+  rethinkDBConnection.host = process.env.rdbHost
+}
+if (process.env.rdbPort !== undefined && process.env.rdbPort !== '') {
+  rethinkDBConnection.port = process.env.rdbPort
+}
+
 const ImportCompleted = 'import_completed'
 const masterJobStatusCompleted = 'completed'
 
-
-let ESConnection = config.get('ESConnection')
+let ESConnection = extend({}, config.get('ESConnection'))
+if (process.env.esHost !== undefined && process.env.esHost !== '') {
+  ESConnection.host = process.env.esHost
+}
+if (process.env.esPort !== undefined && process.env.esPort !== '') {
+  ESConnection.port = process.env.esPort
+}
+if (process.env.esAuth !== undefined && process.env.esAuth !== '') {
+  ESConnection.auth = process.env.esAuth
+}
 
 let queueOption = {
   name: 'uploaderJobQueConfirm'
@@ -29,7 +45,7 @@ process.on('unhandledRejection', (reason, p) => {
   // application specific logging, throwing an error, or other logic here
 });
 
-const objQ = new rfqQueue(connctionOption, queueOption)
+const objQ = new rfqQueue(rethinkDBConnection, queueOption)
 
 function getJobQueue () {
   objQ.process(async (job, next) => {
@@ -58,8 +74,7 @@ let doJob = async function (objWorkJob, next) {
     }
     let importTrackerValue = await getImportTrackerDetails(objWorkJob)
     console.log('==============importTrackerValue=====', importTrackerValue)
-    if (importTrackerValue!==undefined) {
-
+    if (importTrackerValue !== undefined) {
       // check user created on ES
       await getUserRequestResponse(objWorkJob)
         .then(async (result) => {
@@ -73,7 +88,7 @@ let doJob = async function (objWorkJob, next) {
                 next(err)
              })
         })
-        .catch((err) =>{
+        .catch((err) => {
             next(err)
          })
 
@@ -113,7 +128,7 @@ function updateImportTrackerStatus (trackerId) {
       if (err) {
         reject(err)
       } else {
-        resolve('import_to_confirm status updated')
+        resolve(ImportCompleted + ' status updated')
       }
     })
   })
@@ -130,8 +145,19 @@ let getUserRequestResponse = async function (objWorkJob) {
       let ESuserData = JSON.parse(userData)
       let username = objWorkJob.data.userdetails.id
       let userObject = ESuserData[username]
-      userObject.metadata.user_version_history.push(userObject.metadata.sid)
+      let oldSID = ''
+      if (userObject.metadata.sid !== undefined && userObject.metadata.sid !== '') {
+        oldSID = userObject.metadata.sid
+      }
       userObject.metadata.sid = getUserNewVersion(userObject)
+      if (userObject.metadata.user_version_history === undefined) {
+        userObject.metadata.user_version_history = []
+      } else {
+        if (oldSID !== undefined && oldSID !== '') {
+          userObject.metadata.user_version_history.push(userObject.metadata.sid)
+        }
+      }
+      userObject.roles.push('read_write')
       await makeHttpsPostRequest(username, userObject)
       resolve('user updated')
     }
@@ -145,7 +171,7 @@ async function getESUser (username) {
 }
 
 async function makeHttpSRequest (username) {
-  console.log("makeHttpSRequest",username)
+  console.log("makeHttpSRequest", username)
   let objOptions = optionsES
   try {
     let response = await rpRequest( objOptions.tls + objOptions.auth + '@' + objOptions.host + ':' + objOptions.port + '/' + objOptions.path + username)

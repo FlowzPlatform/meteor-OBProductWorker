@@ -1,4 +1,5 @@
 let mongoose = require('mongoose')
+const extend = require('util')._extend;
 mongoose.set('debug', false);
 let ObjectId = require('mongoose').Types.ObjectId
 
@@ -9,33 +10,50 @@ let rpRequest = require('request-promise')
 let http = require('http')
 let _ = require('underscore')
 let https = require('https')
-let extend = require('extend')
 const uuidV1 = require('uuid/v1');
 let ESuserData = null
 let Promise = require('es6-promise').Promise
 let ObjSchema =  mongoose.Schema;
 
 let rethink = require('rethinkdb')
-let rethinkDBConnection = config.get('rethinkDBConnection')
+let rethinkDBConnection = extend({}, config.get('rethinkDBConnection'))
+if (process.env.rdbHost !== undefined && process.env.rdbHost !== '') {
+  rethinkDBConnection.host = process.env.rdbHost
+}
+if (process.env.rdbPort !== undefined && process.env.rdbPort !== '') {
+  rethinkDBConnection.port = process.env.rdbPort
+}
 
 let attributeKeys = ['attr_colors','attr_imprint_color', 'attr_shape', 'attr_decimal']
 let featureKeys = ['feature_1','feature_2','feature_3','feature_4','feature_5','feature_6','feature_7','feature_8','feature_9','feature_10','feature_11','feature_12','feature_13','feature_14','feature_15','feature_16','feature_17','feature_18','feature_19','feature_20','feature_21','feature_22','feature_23','feature_24','feature_25','feature_26','feature_27','feature_28','feature_29','feature_30','feature_31','feature_32','feature_33','feature_34']
+
+let ESConnection = extend({}, config.get('ESConnection'))
+if (process.env.esHost !== undefined && process.env.esHost !== '') {
+  ESConnection.host = process.env.esHost
+}
+if (process.env.esPort !== undefined && process.env.esPort !== '') {
+  ESConnection.port = process.env.esPort
+}
+if (process.env.esAuth !== undefined && process.env.esAuth !== '') {
+  ESConnection.auth = process.env.esAuth
+}
+
 // let esUrl = 'http://elastic:changeme@localhost:9200/'
-let esUrl = 'https://elastic:qu4JFOrR1tU8doBqsFVPPlwc@269c1302a5a92a178fd5dd7b26759f32.us-east-1.aws.found.io:9243'
+let esUrl = 'https://' + ESConnection.auth + '@' + ESConnection.host + ':' + ESConnection.port
 let collectionPrefix = 'uploader'
 let activeSummary = []
 
 let ESClient = new elasticsearch.Client({
   host: esUrl
-//  log: 'trace'
+  ,log: 'trace'
 })
 
 let optionsES = {
   tls: 'https://',
-  host: '269c1302a5a92a178fd5dd7b26759f32.us-east-1.aws.found.io',
+  host: ESConnection.host,
   path: '_xpack/security/user/',
-  port: '9243',
-  auth: 'elastic:qu4JFOrR1tU8doBqsFVPPlwc'
+  port: ESConnection.port,
+  auth: ESConnection.auth
   // This is the only line that is new. `headers` is an object with the headers to request
   // headers: {'custom': 'Custom Header Demo works'}
 }
@@ -46,8 +64,8 @@ let fileTypes =
     { id: 'ProductImprintData', name: 'Imprint Data', isDone: false, isActive: false, 'esKey': 'imprint_data' }, // header: ProductImprintDataHeaders, collection: CollProductImprintData },
     { id: 'ProductImage', name: 'Image', isDone: false, isActive: false, 'esKey': 'images' }, // header: ProductImageHeaders, collection: CollProductImage },
     { id: 'ProductShipping', name: 'Shipping', isDone: false, isActive: false, 'esKey': 'shipping' }, // header: ProductShippingHeaders, collection: CollProductShipping },
-    { id: 'ProductAdditionalCharges', name: 'Additional Charges', isDone: false, isActive: false, 'esKey': '1additional_charge' }, // header: ProductAdditionalChargeHeaders, collection: CollProductAdditionalCharges },
-    { id: 'ProductVariationPrice', name: 'Variation Price', isDone: false, isActive: false, 'esKey': 'pricing' } // header: ProductVariationPricingHeaders, collection: CollProductVariationPrice }
+    { id: 'ProductAdditionalCharges', name: 'Additional Charges', isDone: false, isActive: false, 'esKey': 'additional_charge' }, // header: ProductAdditionalChargeHeaders, collection: CollProductAdditionalCharges },
+    { id: 'ProductVariationPrice', name: 'Variation Price', isDone: false, isActive: false, 'esKey': 'pricing_variation' } // header: ProductVariationPricingHeaders, collection: CollProductVariationPrice }
   ]
 
 let rethinkDbConnectionObj = null
@@ -119,7 +137,7 @@ async function getImportTrackerDetails (objWorkJob) {
   return new Promise(async (resolve, reject) => {
     try {
       // console.log("===========getImportTrackerDetails============1", rethinkDBConnection)
-      let rethinkDbConnectionObj = await connectRethinkDB (rethinkDBConnection)
+      // rethinkDbConnectionObj = await connectRethinkDB (rethinkDBConnection)
       // console.log("===========rethink conn obj created============",objWorkJob.data)
       let importData = await findImportTrackerData(rethinkDbConnectionObj, rethinkDBConnection.db, rethinkDBConnection.table, objWorkJob.data.importTrackerId)
       // console.log("===========treaker Data============", importData)
@@ -147,6 +165,43 @@ async function findImportTrackerData (rconnObj, rdb, rtable, findVal) {
               resolve(result[0]);
             }
         });
+        // resolve(JSON.stringify(result, null, 2))
+      }
+    })
+  })
+}
+
+async function findVirtualShopData (rconnObj, rdb, rtable, username, userObj) {
+  return new Promise(async (resolve, reject) => {
+    console.log('================findVal=========', username)
+    rethink.db(rdb).table(rtable)
+    .filter({'esUser': username})
+    .run(rconnObj, function (err, cursor) {
+      if (err) {
+        reject(err)
+      } else {
+        cursor.toArray(function (err, result) {
+          if (err) {
+            reject(err)
+          } else {
+            if (result.length <= 0) {
+              let vshopUserObject = {
+                "esUser": username,
+                "password": userObj.password,
+                "status": 'completed',
+                "userType": 'supplier',
+                "userId": username,
+                "virtualShopName": userObj.full_name,
+                "company": userObj.metadata.company
+              }
+              rethink.db(rdb)
+                .table(rtable)
+                .insert(vshopUserObject)
+                .run(rconnObj)
+            }
+            resolve(result[0])
+          }
+        })
         // resolve(JSON.stringify(result, null, 2))
       }
     })
@@ -197,13 +252,13 @@ async function makeNewUser (objWorkJob) {
   console.log('username....', username)
   let userObject = {
     'password': '123456',
-    'roles': ['read_write'],
-    'full_name': jobData.userdetails.fullname!=='' && jobData.userdetails.fullname!==undefined?jobData.userdetails.fullname:'Supplier',
-    'email': jobData.userdetails.email!=='' && jobData.userdetails.email!==undefined?jobData.userdetails.email:'',
+    'roles': ['read'],
+    'full_name': jobData.userdetails.fullname !== '' && jobData.userdetails.fullname !== undefined ? jobData.userdetails.fullname : 'Supplier',
+    'email': jobData.userdetails.email !== '' && jobData.userdetails.email !== undefined ? jobData.userdetails.email : '',
     'metadata': {
       'id': username,
       'type': 'supplier',
-      'company': jobData.userdetails.company!=='' && jobData.userdetails.company!==undefined?jobData.userdetails.company:''
+      'company': jobData.userdetails.company !== '' && jobData.userdetails.company !== undefined ? jobData.userdetails.company : ''
     },
     'enabled': true
   }
@@ -216,6 +271,7 @@ async function makeNewUser (objWorkJob) {
     // User Exists
     // console.log('User Exists', objWorkJob)
     ESuserData = JSON.parse(userData)
+    await findVirtualShopData(rethinkDbConnectionObj, rethinkDBConnection.vshopdb, rethinkDBConnection.vshoptable, username, userObject)
     return ESuserData
   }
 }
@@ -415,7 +471,7 @@ function gatherAllData (objWorkJob) {
   return listObjects
 }
 
-let perPageDataUpload = 10
+let perPageDataUpload = 100
 let batchPromise = []
 // to make batch for data upload
 async function makeBatch (objWorkJob, listObjects, currentProductsData, makeProductUpdateJsonObj) {
@@ -423,6 +479,8 @@ async function makeBatch (objWorkJob, listObjects, currentProductsData, makeProd
     console.log("============================IN MAKE BATCH============================");
     let jobData = objWorkJob.data
     let getUserNextVersion = await getUserNewVersion(ESuserData[jobData.userdetails.id])
+
+    // console.log("=================getUserNextVersion=", getUserNextVersion)
     // delete data in ES for current version
     await deleteESData(getUserNextVersion, ESuserData[jobData.userdetails.id]).catch(err =>{
       console.log(err)
@@ -446,11 +504,11 @@ async function makeBatch (objWorkJob, listObjects, currentProductsData, makeProd
         let batchPromiseObj
         for (let offset = 1; offset <= totalBatch; offset++) {
 
-          batchPromiseObj = makeJson(objWorkJob, listObjects, offset, currentProductsData, makeProductUpdateJsonObj).catch(err => {
-            console.log("Makebatch err", err)
-          })
-          //console.log('===============', batchPromiseObj)
-          batchPromise.push(batchPromiseObj)
+            batchPromiseObj = makeJson(objWorkJob, listObjects, offset, currentProductsData, makeProductUpdateJsonObj).catch(err => {
+              console.log("Makebatch err", err)
+            })
+            //console.log('===============', batchPromiseObj)
+            batchPromise.push(batchPromiseObj)
         }
         // mergeOtherProductData(objWorkJob, data, listObjects)
 
@@ -508,19 +566,17 @@ async function mergeOtherProductData (objWorkJob, data, listObjects, currentProd
 return new Promise(async (resolve, reject) => {
     let jobData = objWorkJob.data
 
-    //console.log(`console ${data.length}`, listObjects)
+    // console.log(`=================console ${data.length}`, listObjects)
     let makeProductJsonObj = makeProductUpdateJsonObj
     let activeSummaryObj
     let getUserNextVersion = await getUserNewVersion(ESuserData[jobData.userdetails.id])
 
-    //console.log("========",getUserNextVersion)
+    // console.log("=======getUserNextVersion=",getUserNextVersion)
     let currentProductData = []
-
-    data.forEach(async function (value, index) {
-
-      value = value.toObject()
+    for (let dataKey in data) {
+      // data.forEach(async function (value, index) {
+      let value = data[dataKey].toObject()
       // console.log("*************VALUE***********",value);
-
       activeSummary.length = 0;
       // console.log("**************************",activeSummary,"*******************");
 
@@ -538,17 +594,14 @@ return new Promise(async (resolve, reject) => {
       } else {
           currentProductData = undefined
       }
-
       // -----file objects
      let otherValue = null
-     listObjects.slice(1).forEach(function (fValue, fIndex) {
-      //  console.log("_________________fvalue___________",fValue);
-      //  console.log("_________________findex___________",fIndex);
-      //  console.log(".............Calling getProductSpecificOtherValues...............")
-         getProductSpecificOtherValues(fValue, value, currentProductData)
-     })
-
-      makeProductJsonObj.push({
+     for (let listObjectKey in listObjects) {
+      if(listObjects[listObjectKey].indexKey !== 'ProductInformation') {
+       value = await getProductSpecificOtherValues(listObjects[listObjectKey], value, currentProductData)
+      }
+     }
+     makeProductJsonObj.push({
         index: {
           _index: productIndex,
           _type: productDataType,
@@ -615,28 +668,28 @@ return new Promise(async (resolve, reject) => {
         // console.log("---------------fValue---------------",fValue);
         // console.log("---------------value[fIndex]---------------",value[fIndex]);
         if(value[fIndex] && value[fIndex].length > 0) {
-            if(!value.features) {
-              value.features = {}
-            }
-            let keyValue = fIndex.replace('feature_', '')
+          if(!value.features) {
+            value.features = {}
+          }
+          let keyValue = fIndex.replace('feature_', '')
 
 
-            // let key = "key"
-            // let value = "value"
-            // console.log("***************************",keyValue,"**************************");
+          // let key = "key"
+          // let value = "value"
+          // console.log("***************************",keyValue,"**************************");
+          if (value[fIndex] && value[fIndex] !== '') {
             let featuresArr = convertStringToArray(value[fIndex], '|')
             featuresArray.push({"key":featuresArr[0],"value":featuresArr[1]})
             let features = featuresArr.join();
             activeSummary.push(features);
-            delete(value[fIndex])
+          }
+          delete(value[fIndex])
+        } else {
+          delete(value[fIndex])
         }
       })
       value.features = featuresArray
       // console.log("^^^^^^^^^^^^^^^^^^^^^^^value['features']^^^^^^^^^^^^^^^^^^^^^",value.features);
-
-
-
-
 
       value['activeSummary'] = activeSummary.join()
       // console.log("++++++++++++++++++++++++++",value['activeSummary'])
@@ -661,17 +714,18 @@ return new Promise(async (resolve, reject) => {
       // }, {});
       // console.log("Active Summary Object.................",activeSummaryObj)
       // value['vid'] = Array('sub5-1')
-      // console.log("---------------Value For ES--------",value)
+//      console.log("---------------Value For ES--------",value)
       makeProductJsonObj.push(value)
       // makeProductJsonObj.push({activeSummary:activeSummaryObj})
       // console.log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",JSON.stringify(makeProductJsonObj))
     //  return true
-    })
+    }
 
     //console.log(ESuserData)
 
     // dump data in ES
     //  await PushToES(activeSummary)
+//    console.log("==========================dumpToEs==================");
     await dumpToES(makeProductJsonObj)
     .then((result) => {
       console.log('==========dumpToES=result=====', result)
@@ -698,117 +752,129 @@ return new Promise(async (resolve, reject) => {
 // }
 
 async function getProductSpecificOtherValues (fValue, value, currentVal) {
-  // console.log(".............In getProductSpecificOtherValues................. ")
-  let currency_key = ""
-  let min_price = ""
-  let max_price = ""
-  if(fValue['oldFlag'] === true) {
-    if(currentVal && currentVal[fValue['esKey']]) {
-      if(value[fValue['esKey']]) {
-          value[fValue['esKey']] = {}
+  return new Promise(async (resolve, reject) => {
+    let oldValue = value
+    // console.log(".............In getProductSpecificOtherValues................. ")
+    let currency_key = ""
+    let min_price = ""
+    let max_price = ""
+    if(fValue['oldFlag'] === true) {
+      if(currentVal && currentVal[fValue['esKey']]) {
+        if(value[fValue['esKey']]) {
+            value[fValue['esKey']] = {}
+        }
+        value[fValue['esKey']] = currentVal[fValue['esKey']]
       }
-      value[fValue['esKey']] = currentVal[fValue['esKey']]
-    }
-  } else {
-    let collObject = makeDynamicCollectionObj(fValue['indexKey'])
-    let available_currencies = convertStringToArray(value['available_currencies'], '|')
-    let baseCurrency =   available_currencies[0]
-    // console.log("************* baseCurrency",baseCurrency,"****************")
+      resolve(value)
+    } else {
+      let collObject = makeDynamicCollectionObj(fValue['indexKey'])
+      let available_currencies = convertStringToArray(value['available_currencies'], '|')
+      let baseCurrency =   available_currencies[0]
+      // console.log("************* baseCurrency",baseCurrency,"****************")
 
-    await collObject.find({'sku': value.sku, 'fileID': fValue['id']}, function (err, result) {
-      if(!err) {
-        if(result.length > 0) {
-          let pricingArr = {}
-          result.forEach(function (value, index) {
-            result[index] = result[index].toObject()
-            delete result[index].fileID
-            delete result[index].owner
-            delete result[index].username
-            delete result[index].sr_no
+      await collObject.find({'sku': value.sku, 'fileID': fValue['id']}, function (err, result) {
+        if(!err) {
+          if(result.length > 0) {
+            let pricingArr = {}
+            result.forEach(function (value, index) {
+              result[index] = result[index].toObject()
+              delete result[index].fileID
+              delete result[index].owner
+              delete result[index].username
+              delete result[index].sr_no
 
-            if(fValue['indexKey'] == 'ProductShipping'){
-              result[index].shipping_range = formatShippingRange(result[index])
-              // console.log("**************  result[index].shipping_range***************",result[index].shipping_range)
-            }
-
-            if(fValue['indexKey'] == 'ProductImage'){
-              result[index].images = formatImages(result[index])
-              console.log("###########",result[index])
-            }
-
-            if(fValue['indexKey'] == 'ProductPrice') {
-              if(result[index].currency != baseCurrency){
-
-                currency_key = '_' + result[index].currency;
-
-              }
-              else {
-                currency_key = ''
+              if(fValue['indexKey'] == 'ProductShipping'){
+                result[index].shipping_range = formatShippingRange(result[index])
+                // console.log("**************  result[index].shipping_range***************",result[index].shipping_range)
               }
 
-                result[index].price_range = formatPriceRange(result[index])
-                // console.log("result[index]..........",result[index])
-                // console.log("result[index][price_type]..........",result[index]["price_type"])
-                if(result[index]["price_type"]== "regular" && (result[index]["type"]== "decorative" || result[index]["type"]== "") && result[index]["global_price_type"] == "global"){
-                min_price = result[index]["price_range"][0]["price"]
+              if(fValue['indexKey'] == 'ProductImprintData'){
+                result[index].imprint_data_range = formatShippingRange(result[index])
+                // console.log("**************  result[index].shipping_range***************",result[index].shipping_range)
+              }
 
-                let price_range = result[index]["price_range"]
-                // console.log("price_range",price_range)
-                for(i=0;i<price_range.length;i++){
-                  let length = price_range.length
-                  // console.log("length...",length)
-                  if(length > 1){
-                    // console.log("called........")
-                  max_price = price_range[length-1]["price"]
-                  // console.log("max_price",max_price)
+              if(fValue['indexKey'] === 'ProductImage') {
+                result[index].images = formatImages(result[index])
+                // console.log("###########",result[index])
+              }
+
+              if(fValue['indexKey'] === 'ProductPrice') {
+                if(result[index].currency != baseCurrency){
+
+                  currency_key = '_' + result[index].currency;
+
+                } else {
+                  currency_key = ''
+                }
+
+                  result[index].price_range = formatPriceRange(result[index])
+                  // console.log("result[index]..1111........",result[index])
+                  // console.log("result[index][price_type]..........",result[index]["price_type"])
+                  if(result[index]["price_type"]== "regular" && (result[index]["type"]== "decorative" || result[index]["type"]== "") && result[index]["global_price_type"] == "global"){
+                  min_price = result[index]["price_range"][0]["price"]
+
+                  let price_range = result[index]["price_range"]
+                  // console.log("price_range",price_range)
+                  for(i=0;i<price_range.length;i++){
+                    let length = price_range.length
+                    // console.log("length...",length)
+                    if(length > 1){
+                      // console.log("called........")
+                    max_price = price_range[length-1]["price"]
+                    // console.log("max_price",max_price)
+                    }
                   }
                 }
-              }
 
 
-              attributeKeys.forEach(function (aIndex, aValue) {
-                if(result[index][aIndex] && result[index][aIndex].length > 0) {
-                    if(!result[index].attributes) {
-                      result[index].attributes = {}
-                    }
-                    let keyValue = aIndex.replace('attr_', '')
-                    result[index].attributes[keyValue] = convertStringToArray(result[index][aIndex], '|')
-                    // let attributes =  result[index].attributes[keyValue].join();
-                    // activeSummary.push(attributes);
-                    // console.log("*************ACTIVE SUMMARY************",activeSummary);
-                    delete(result[index][aIndex])
+                attributeKeys.forEach(function (aIndex, aValue) {
+                  if(result[index][aIndex] && result[index][aIndex].length > 0) {
+                      if(!result[index].attributes) {
+                        result[index].attributes = {}
+                      }
+                      let keyValue = aIndex.replace('attr_', '')
+                      result[index].attributes[keyValue] = convertStringToArray(result[index][aIndex], '|')
+                      // let attributes =  result[index].attributes[keyValue].join();
+                      // activeSummary.push(attributes);
+                      // console.log("*************ACTIVE SUMMARY************",activeSummary);
+                      delete(result[index][aIndex])
+                  }
+                })
+
+                if(pricingArr[fValue['esKey']+currency_key] == undefined) {
+                  pricingArr[fValue['esKey']+currency_key] = []
                 }
-              })
-
-              if(pricingArr[fValue['esKey']+currency_key] == undefined) {
-                pricingArr[fValue['esKey']+currency_key] = []
+                pricingArr[fValue['esKey']+currency_key].push(result[index])
               }
-              pricingArr[fValue['esKey']+currency_key].push(result[index])
+            })
+
+            if(fValue['indexKey'] == 'ProductPrice') {
+               // console.log("========32323333232==========================pricingArr=",pricingArr)
+              value["min_price"] = min_price
+              value["max_price"] = max_price
+              // console.log("min_price................",value["min_price"],value["max_price"])
+                for (var property in pricingArr) {
+                  if (pricingArr.hasOwnProperty(property)) {
+                      value[property]=pricingArr[property]
+                      // console.log("value[property]",value[property])
+                      // console.log("value",value) // do stuff
+                  }
+                }
+            } else {
+                value[fValue['esKey']] = result
+                // console.log("value[fValue['esKey']]",value[fValue['esKey']])
             }
-          })
-
-          if(fValue['indexKey'] == 'ProductPrice') {
-            // console.log("==================================pricingArr=",pricingArr)
-            value["min_price"] = min_price
-            value["max_price"] = max_price
-            // console.log("min_price................",value["min_price"],value["max_price"])
-              for (var property in pricingArr) {
-                if (pricingArr.hasOwnProperty(property)) {
-                    value[property]=pricingArr[property]
-                    // console.log("value[property]",value[property])
-                    // console.log("value",value) // do stuff
-                }
-              }
-          } else {
-              value[fValue['esKey']] = result
-              // console.log("value[fValue['esKey']]",value[fValue['esKey']])
           }
+          resolve(value)
+        } else {
+          resolve(oldValue)
         }
-      }
-    }).catch(err => {
-      console.log("getProductSpecificOtherValues err",err)
-    })
-  }
+      }).catch(err => {
+        console.log("getProductSpecificOtherValues err",err)
+        resolve(oldValue)
+      })
+    }
+  })
 }
 
 
@@ -816,7 +882,7 @@ function formatPriceRange (result) {
   // console.log("FormatPricerange...................")
   let priceRange = []
   for(let i = 1; i <= 10; i++) {
-    if(result['qty_' + i + '_min']) {
+    if(result['qty_' + i + '_min'] > 0) {
       if(result['qty_' + i + '_max'] > 0) {
         priceRange.push({'qty': {'gte': result['qty_' + i + '_min'],
           'lte': result['qty_' + i + '_max'] > 0 ? result['qty_' + i + '_max'] : 0 },
@@ -831,6 +897,11 @@ function formatPriceRange (result) {
         delete result['qty_' + i + '_max']
         delete result['price_' + i]
         delete result['code_' + i]
+    } else {
+      delete result['qty_' + i + '_min']
+      delete result['qty_' + i + '_max']
+      delete result['price_' + i]
+      delete result['code_' + i]
     }
   }
   return (priceRange);
@@ -873,21 +944,29 @@ function formatShippingRange (result) {
         delete result['qty_' + i + '_max']
         delete result['price_' + i]
         delete result['code_' + i]
+    } else {
+      delete result['qty_' + i + '_min']
+      delete result['qty_' + i + '_max']
+      delete result['price_' + i]
+      delete result['code_' + i]
     }
   }
   return (shippingRange);
 }
 
 function formatImages (result) {
-  console.log("+++++++++++++++++++ result",result)
+  // console.log("+++++++++++++++++++ result",result)
   let images = []
   for(let i = 1; i <= 50; i++) {
-    if(result['web_image_' + i] != null) {
-      console.log("inside..............................................................................")
-        images.push({'web_image': result['web_image_' + i], 'color': result['color_' + i]
+    if(result['web_image_' + i] && result['web_image_' + i] !== null && result['web_image_' + i] !== '') {
+      // console.log("inside..............................................................................")
+        images.push({'web_image': result['web_image_' + i],
+                     'color': result['color_' + i],
+                     'image_color_code': result['image_color_code_' + i]
           })
         }
         delete result['web_image_' + i]
+        delete result['image_color_code_' + i]
         delete result['color_' + i]
     }
   return (images);
@@ -945,7 +1024,7 @@ async function deleteESData (versionNo, EsUser) {
     body: bodyData
     }, function (error, response) {
       // console.log("***************",response)
-      if(response != undefined &&  response.hits.hits.length > 0) {
+      if(response !== undefined && response.hits && response.hits.hits && response.hits.hits.length > 0) {
         let productData = response.hits.hits
         let makeProductUpdateJsonObj1 = []
         productData.forEach(function (value, index) {
@@ -1015,11 +1094,12 @@ async function getProductDataByESData (EsUser, sku) {
 
 async function dumpToES (makeProductJsonObj) {
   let bulkRowsString = makeProductJsonObj.map(function (row) {
-    // console.log("-------------------------",row,"----------------------------");
+   // console.log("-------------------------",row,"----------------------------");
     return JSON.stringify(row)
   }).join('\n') + '\n'
-  // bulkRowsString += '\n'
+  bulkRowsString += '\n'
   // console.log(makeProductJsonObj);
+  console.log("-------------------------bulk request----------------------------");
   return new Promise(function (resolve) {
     ESClient.bulk({body: makeProductJsonObj}, function (err, resp) {
       if (!err) {
