@@ -3,6 +3,7 @@ const config = require('config')
 let rethink = require('rethinkdb')
 let rpRequest = require('request-promise')
 const extend = require('util')._extend
+let _ = require('underscore')
 
 let rethinkDBConnection = extend({}, config.get('rethinkDBConnection'))
 if (process.env.rdbHost !== undefined && process.env.rdbHost !== '') {
@@ -145,6 +146,7 @@ let getUserRequestResponse = async function (objWorkJob) {
       let ESuserData = JSON.parse(userData)
       let username = objWorkJob.data.userdetails.id
       let userObject = ESuserData[username]
+      // console.log("===============", userObject)
       let oldSID = ''
       if (userObject.metadata.sid !== undefined && userObject.metadata.sid !== '') {
         oldSID = userObject.metadata.sid
@@ -154,10 +156,11 @@ let getUserRequestResponse = async function (objWorkJob) {
         userObject.metadata.user_version_history = []
       } else {
         if (oldSID !== undefined && oldSID !== '') {
-          userObject.metadata.user_version_history.push(userObject.metadata.sid)
+          userObject.metadata.user_version_history.push(oldSID)
         }
       }
       userObject.roles.push('read_write')
+      userObject.roles = _.uniq(userObject.roles)
       await makeHttpsPostRequest(username, userObject)
       resolve('user updated')
     }
@@ -183,10 +186,10 @@ async function makeHttpSRequest (username) {
 }
 
 function getUserNewVersion (ESUser) {
-  // console.log("===========",ESUser)
+  //console.log("===========",ESUser)
   let versionNo = 1
   if (ESUser.metadata.user_version_history) {
-    versionNo = ESUser.metadata.user_version_history.length + 1
+    versionNo = ESUser.metadata.user_version_history.length + 2
   }
   return 'sup' + ESUser.metadata.id + '-' + versionNo
 }

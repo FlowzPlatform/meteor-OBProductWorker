@@ -44,8 +44,9 @@ let collectionPrefix = 'uploader'
 let activeSummary = []
 
 let ESClient = new elasticsearch.Client({
-  host: esUrl
-  ,log: 'trace'
+  host: esUrl,
+  requestTimeout: 100000
+//  ,log: 'trace'
 })
 
 let optionsES = {
@@ -466,7 +467,7 @@ function gatherAllData (objWorkJob) {
     }
   })
   // ProductSchema
-  // console.log(listObjects)
+  console.log("============listObjects===========", listObjects)
   // make particular product wise json object
   return listObjects
 }
@@ -504,19 +505,27 @@ async function makeBatch (objWorkJob, listObjects, currentProductsData, makeProd
         let batchPromiseObj
         for (let offset = 1; offset <= totalBatch; offset++) {
 
-            batchPromiseObj = makeJson(objWorkJob, listObjects, offset, currentProductsData, makeProductUpdateJsonObj).catch(err => {
+            batchPromiseObj = makeJson(objWorkJob, listObjects, offset, currentProductsData, []).catch(err => {
               console.log("Makebatch err", err)
             })
             //console.log('===============', batchPromiseObj)
             batchPromise.push(batchPromiseObj)
         }
         // mergeOtherProductData(objWorkJob, data, listObjects)
+        await dumpToES(makeProductUpdateJsonObj)
+        .then((result) => {
+          //console.log('==========dumpToES=result=====', result)
+          // resolve(result)
+        })
+        .catch(err => {
+          console.log(err)
+          // reject(err)
+        })
 
         batchPromiseObj.then((result) => {
           console.log("===========================batchPromiseObj=result======", result)
           resolve(result)
         })
-
         // setAllPromiseResolved(resolve, reject, batchPromise)
       }
     })
@@ -566,7 +575,7 @@ async function mergeOtherProductData (objWorkJob, data, listObjects, currentProd
 return new Promise(async (resolve, reject) => {
     let jobData = objWorkJob.data
 
-    // console.log(`=================console ${data.length}`, listObjects)
+    //console.log(`=================console ${data.length}`, listObjects)
     let makeProductJsonObj = makeProductUpdateJsonObj
     let activeSummaryObj
     let getUserNextVersion = await getUserNewVersion(ESuserData[jobData.userdetails.id])
@@ -576,13 +585,13 @@ return new Promise(async (resolve, reject) => {
     for (let dataKey in data) {
       // data.forEach(async function (value, index) {
       let value = data[dataKey].toObject()
-      // console.log("*************VALUE***********",value);
+      // console.log("*************VALUE***********", value.sku);
       activeSummary.length = 0;
       // console.log("**************************",activeSummary,"*******************");
 
       if(jobData.uploadType == 'update') {
         if(currentProductsData[value.sku] == undefined) {
-          return true
+          continue
         }
       }
       //console.log('ID:' + data[index])
@@ -601,6 +610,7 @@ return new Promise(async (resolve, reject) => {
        value = await getProductSpecificOtherValues(listObjects[listObjectKey], value, currentProductData)
       }
      }
+     // console.log("========================value.sku=", value.sku)
      makeProductJsonObj.push({
         index: {
           _index: productIndex,
@@ -635,12 +645,16 @@ return new Promise(async (resolve, reject) => {
          value['non-available_regions'] = []
        }
 
+       if(value['special_price_valid_up_to'] !== undefined && value['special_price_valid_up_to'] === '') {
+         delete(value['special_price_valid_up_to'])
+       }
+
       value['available_currencies'] = convertStringToArray(value['available_currencies'], '|')
-      if(value['categories']){
-      value['categories'] = convertStringToArray(value['categories'], '|')
+      if(value['categories']) {
+        value['categories'] = convertStringToArray(value['categories'], '|')
       }
-      if(value['search_keyword']){
-      value['search_keyword'] = convertStringToArray(value['search_keyword'], '|')
+      if (value['search_keyword']) {
+        value['search_keyword'] = convertStringToArray(value['search_keyword'], '|')
       }
       // value['available_regions'] = convertStringToArray(value['available_regions'], ',')
       // value['nonavailable_regions'] = convertStringToArray(value['nonavailable_regions'], ',')
@@ -969,16 +983,16 @@ function formatImages (result) {
         delete result['image_color_code_' + i]
         delete result['color_' + i]
     }
-  return (images);
+  return (images)
 }
 
 function getUserNewVersion (ESUser) {
   //console.log("===========",ESUser)
-  let versionNo = 1;
+  let versionNo = 1
   if (ESUser.metadata.user_version_history) {
-      versionNo = ESUser.metadata.user_version_history.length + 1
+    versionNo = ESUser.metadata.user_version_history.length + 2
   }
-  return 'sup'+ ESUser.metadata.id + '-' + versionNo
+  return 'sup' + ESUser.metadata.id + '-' + versionNo
 }
 
 function makeDynamicCollectionObj (collectionName) {
@@ -1075,17 +1089,18 @@ async function getProductDataByESData (EsUser, sku) {
     if(sku != undefined && sku != '') {
       bodyData.query.bool.must.push( {"match_phrase": { "sku": sku }})
     }
-
+    // console.log("======bodyData=======", bodyData.query.bool.must)
     try {
       await ESClient.search({
       index: productIndex,
       type: productDataType,
       body: bodyData
       }, function (error, response) {
-        // console.log(response)
-        return resolve(response)
+        // console.log(error, response)
+        resolve(response)
       })
     } catch (e) {
+      // console(e)
       return reject({'hits':{'hits':[]}})
     }
 
